@@ -2,5 +2,11 @@
   "buildCommand": "prisma generate && next build",
   "env": {
     "SKIP_ENV_VALIDATION": "1"
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/reminders/send",
+      "schedule": "0 13 * * *"
+    }
+  ]
 }
