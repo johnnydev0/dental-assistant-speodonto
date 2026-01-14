@@ -1,52 +1,52 @@
-import axios from 'axios'
+import axios from "axios";
 
 interface Message {
-  role: 'user' | 'assistant' | 'system'
-  content: string
+  role: "user" | "assistant" | "system";
+  content: string;
 }
 
 interface ConversationContext {
-  customerName?: string
-  service?: string
-  date?: string
-  time?: string
+  customerName?: string;
+  service?: string;
+  date?: string;
+  time?: string;
 }
 
 export class AIService {
-  private apiKey: string
-  private model: string = 'gpt-4o-mini'
+  private apiKey: string;
+  private model: string = "gpt-4-turbo";
 
   constructor() {
-    this.apiKey = process.env.OPENAI_API_KEY || ''
+    this.apiKey = process.env.OPENAI_API_KEY || "";
   }
 
-  async chat(messages: Message[], context?: ConversationContext): Promise<string> {
-    const systemPrompt = this.buildSystemPrompt(context)
+  async chat(
+    messages: Message[],
+    context?: ConversationContext
+  ): Promise<string> {
+    const systemPrompt = this.buildSystemPrompt(context);
 
     try {
       const response = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
+        "https://api.openai.com/v1/chat/completions",
         {
           model: this.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages
-          ],
+          messages: [{ role: "system", content: systemPrompt }, ...messages],
           temperature: 0.7,
-          max_tokens: 500
+          max_tokens: 500,
         },
         {
           headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json'
-          }
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
         }
-      )
+      );
 
-      return response.data.choices[0].message.content
+      return response.data.choices[0].message.content;
     } catch (error) {
-      console.error('Erro ao chamar API da OpenAI:', error)
-      throw new Error('Falha ao processar mensagem com IA')
+      console.error("Erro ao chamar API da OpenAI:", error);
+      throw new Error("Falha ao processar mensagem com IA");
     }
   }
 
@@ -73,38 +73,39 @@ AGENDAMENTO_COMPLETO
 Nome: [nome]
 Serviço: [serviço]
 Data: [data no formato YYYY-MM-DD]
-Horário: [horário no formato HH:00]`
+Horário: [horário no formato HH:00]`;
 
     if (context) {
-      let contextInfo = '\n\nINFORMAÇÕES JÁ COLETADAS:'
-      if (context.customerName) contextInfo += `\n- Nome: ${context.customerName}`
-      if (context.service) contextInfo += `\n- Serviço: ${context.service}`
-      if (context.date) contextInfo += `\n- Data: ${context.date}`
-      if (context.time) contextInfo += `\n- Horário: ${context.time}`
+      let contextInfo = "\n\nINFORMAÇÕES JÁ COLETADAS:";
+      if (context.customerName)
+        contextInfo += `\n- Nome: ${context.customerName}`;
+      if (context.service) contextInfo += `\n- Serviço: ${context.service}`;
+      if (context.date) contextInfo += `\n- Data: ${context.date}`;
+      if (context.time) contextInfo += `\n- Horário: ${context.time}`;
 
-      return basePrompt + contextInfo
+      return basePrompt + contextInfo;
     }
 
-    return basePrompt
+    return basePrompt;
   }
 
   extractAppointmentData(message: string): {
-    isComplete: boolean
+    isComplete: boolean;
     data?: {
-      customerName: string
-      service: string
-      date: string
-      time: string
-    }
+      customerName: string;
+      service: string;
+      date: string;
+      time: string;
+    };
   } {
-    if (!message.includes('AGENDAMENTO_COMPLETO')) {
-      return { isComplete: false }
+    if (!message.includes("AGENDAMENTO_COMPLETO")) {
+      return { isComplete: false };
     }
 
-    const nameMatch = message.match(/Nome:\s*(.+)/i)
-    const serviceMatch = message.match(/Serviço:\s*(.+)/i)
-    const dateMatch = message.match(/Data:\s*(\d{4}-\d{2}-\d{2})/i)
-    const timeMatch = message.match(/Horário:\s*(\d{2}:\d{2})/i)
+    const nameMatch = message.match(/Nome:\s*(.+)/i);
+    const serviceMatch = message.match(/Serviço:\s*(.+)/i);
+    const dateMatch = message.match(/Data:\s*(\d{4}-\d{2}-\d{2})/i);
+    const timeMatch = message.match(/Horário:\s*(\d{2}:\d{2})/i);
 
     if (nameMatch && serviceMatch && dateMatch && timeMatch) {
       return {
@@ -113,13 +114,13 @@ Horário: [horário no formato HH:00]`
           customerName: nameMatch[1].trim(),
           service: serviceMatch[1].trim(),
           date: dateMatch[1].trim(),
-          time: timeMatch[1].trim()
-        }
-      }
+          time: timeMatch[1].trim(),
+        },
+      };
     }
 
-    return { isComplete: false }
+    return { isComplete: false };
   }
 }
 
-export const aiService = new AIService()
+export const aiService = new AIService();

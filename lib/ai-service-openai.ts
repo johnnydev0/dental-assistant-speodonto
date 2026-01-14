@@ -15,7 +15,7 @@ interface ConversationContext {
 
 export class OpenAIService {
   private client: OpenAI;
-  private model: string = "gpt-3.5-turbo";
+  private model: string = "gpt-4-turbo";
 
   constructor() {
     this.client = new OpenAI({
