@@ -20,9 +20,30 @@ export async function GET(request: NextRequest) {
   return new NextResponse("Forbidden", { status: 403 });
 }
 
+// Função auxiliar para limpar conversas antigas (executada em background)
+async function cleanupOldConversations() {
+  try {
+    const tenDaysAgo = new Date()
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10)
+
+    await prisma.conversation.deleteMany({
+      where: {
+        updatedAt: {
+          lt: tenDaysAgo
+        }
+      }
+    })
+  } catch (error) {
+    // Silenciosamente ignora erros de limpeza para não impactar o webhook
+  }
+}
+
 // Webhook para receber mensagens (POST)
 export async function POST(request: NextRequest) {
   try {
+    // Executa limpeza de conversas antigas em background (não bloqueia o webhook)
+    cleanupOldConversations().catch(() => {})
+
     const body = await request.json();
 
     // Verifica se é uma mensagem de texto
@@ -103,8 +124,37 @@ export async function POST(request: NextRequest) {
     const appointmentData = aiService.extractAppointmentData(aiResponse);
 
     if (appointmentData.isComplete && appointmentData.data) {
+      // VALIDAÇÃO CRÍTICA: Verifica se o nome foi extraído corretamente
+      if (!appointmentData.data.customerName || appointmentData.data.customerName.trim() === '') {
+        const errorMessage =
+          `⚠️ Desculpe, houve um problema ao processar seu nome. ` +
+          `Por favor, me informe seu nome completo novamente para confirmarmos o agendamento.`;
+
+        await whatsappService.sendMessage(from, errorMessage);
+        return NextResponse.json({ status: "error_missing_name" });
+      }
+
       const requestedDate = new Date(appointmentData.data.date);
       const requestedTime = appointmentData.data.time;
+
+      // Salvar dados de debug no contexto
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          context: {
+            ...context,
+            customerName: appointmentData.data.customerName,
+            lastExtractedData: {
+              name: appointmentData.data.customerName,
+              service: appointmentData.data.service,
+              date: appointmentData.data.date,
+              time: appointmentData.data.time,
+              extractedAt: new Date().toISOString(),
+              userMessageTimestamp: new Date().toISOString(),
+            }
+          }
+        }
+      });
 
       // 1. Verifica se o dia está completamente bloqueado
       const blockedDate = await prisma.blockedDate.findFirst({
@@ -184,8 +234,6 @@ export async function POST(request: NextRequest) {
 
       // Se houver agendamentos existentes, cancela todos (é uma remarcação)
       if (existingAppointments.length > 0) {
-        console.log(`📅 Cancelando ${existingAppointments.length} agendamento(s) existente(s) do cliente ${from}`);
-
         await prisma.appointment.updateMany({
           where: {
             customerPhone: from,
@@ -211,8 +259,6 @@ export async function POST(request: NextRequest) {
           conversationId: conversation.id,
         },
       });
-
-      console.log(`✅ Novo agendamento criado: ${appointment.id}`);
 
       // Fecha conversa
       await prisma.conversation.update({
