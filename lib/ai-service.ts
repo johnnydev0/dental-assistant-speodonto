@@ -14,7 +14,7 @@ interface ConversationContext {
 
 export class AIService {
   private apiKey: string;
-  private model: string = "gpt-4-turbo";
+  private model: string = "gpt-4o-mini";
 
   constructor() {
     this.apiKey = process.env.OPENAI_API_KEY || "";
