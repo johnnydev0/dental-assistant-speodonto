@@ -681,6 +681,33 @@ export async function POST(request: NextRequest) {
           });
         }
 
+        // Verificar se o cliente já tem agendamentos existentes (remarcação)
+        const existingClientAppointments = await prisma.appointment.findMany({
+          where: {
+            customerPhone: phoneNumber,
+            status: {
+              in: ["PENDING", "CONFIRMED"],
+            },
+          },
+        });
+
+        // Se houver agendamentos existentes, cancela todos (é uma remarcação)
+        const isRescheduling = existingClientAppointments.length > 0;
+        if (isRescheduling) {
+          console.log(`📅 Remarcação detectada! Cancelando ${existingClientAppointments.length} agendamento(s) anterior(es)`);
+          await prisma.appointment.updateMany({
+            where: {
+              customerPhone: phoneNumber,
+              status: {
+                in: ["PENDING", "CONFIRMED"],
+              },
+            },
+            data: {
+              status: "CANCELLED",
+            },
+          });
+        }
+
         // Criar agendamento
         const appointment = await prisma.appointment.create({
           data: {
@@ -705,7 +732,7 @@ export async function POST(request: NextRequest) {
 
         // Envia mensagem de confirmação limpa
         const confirmationMessage =
-          `✅ Agendamento confirmado!\n\n` +
+          `✅ ${isRescheduling ? 'Agendamento remarcado' : 'Agendamento confirmado'}!\n\n` +
           `📋 Resumo:\n` +
           `Nome: ${appointmentData.data.customerName}\n` +
           `Serviço: ${appointmentData.data.service}\n` +
