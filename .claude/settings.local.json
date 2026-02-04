@@ -3,7 +3,9 @@
     "allow": [
       "Bash(node -e:*)",
       "Bash(npx prisma db push:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npx next build:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

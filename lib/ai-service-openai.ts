@@ -363,21 +363,23 @@ CRITICO CRITICO CRITICO: Quando tiver TODAS as 4 informacoes:
 Voce DEVE OBRIGATORIAMENTE enviar este bloco EXATO:
 
 AGENDAMENTO_COMPLETO
-Nome: [nome completo]
-Servico: [servico]
-Data: [YYYY-MM-DD]
-Horario: [HH:MM]
+Nome: Maria da Silva
+Servico: Limpeza
+Data: ${currentYear}-01-15
+Horario: 10:30
+
+IMPORTANTE: NUNCA escreva "[nome completo]" ou "[servico]" - use os DADOS REAIS coletados do paciente!
 
 DEPOIS do bloco acima, voce pode adicionar uma mensagem amigavel.
 
-EXEMPLO CORRETO:
+EXEMPLO CORRETO (para um paciente chamado Joao Paulo que quer limpeza dia 15/01/${currentYear} as 10h30):
 AGENDAMENTO_COMPLETO
 Nome: Joao Paulo Pessoa
 Servico: Limpeza
-Data: 2025-11-14
+Data: ${currentYear}-01-15
 Horario: 10:30
 
-Sua consulta esta marcada para sexta-feira, dia 14/11/2025, as 10h30. Ate breve!
+Sua consulta esta marcada para quarta-feira, dia 15/01/${currentYear}, as 10h30. Ate breve!
 
 CRITICO - FORMATO DO HORARIO:
 - Use SEMPRE o formato HH:MM com dois digitos e dois pontos
@@ -418,12 +420,49 @@ NUNCA envie AGENDAMENTO_COMPLETO mais de uma vez na mesma conversa!`;
       return { isComplete: false };
     }
 
+    console.log("🔍 Extraindo dados de AGENDAMENTO_COMPLETO...");
+
     const nameMatch = message.match(/Nome:\s*(.+)/i);
     const serviceMatch = message.match(/Servi[cç]o:\s*(.+)/i);
     const dateMatch = message.match(/Data:\s*(\d{4}-\d{2}-\d{2})/i);
     const timeMatch = message.match(/Hor[aá]rio:\s*(\d{1,2}[h:]?\d{0,2})/i);
 
+    // Log detalhado para debug
+    console.log("📋 Resultados da extração:", {
+      nome: nameMatch ? nameMatch[1] : "NÃO ENCONTRADO",
+      servico: serviceMatch ? serviceMatch[1] : "NÃO ENCONTRADO",
+      data: dateMatch ? dateMatch[1] : "NÃO ENCONTRADO",
+      horario: timeMatch ? timeMatch[1] : "NÃO ENCONTRADO",
+    });
+
     if (nameMatch && serviceMatch && dateMatch && timeMatch) {
+      const customerName = nameMatch[1].trim();
+
+      // Validar se o nome não é um placeholder
+      const invalidNames = [
+        "[nome completo]",
+        "[nome]",
+        "nome completo",
+        "[nome do paciente]",
+        "nome do paciente",
+      ];
+
+      if (invalidNames.some(invalid =>
+        customerName.toLowerCase().includes(invalid.toLowerCase()) ||
+        customerName.startsWith("[") ||
+        customerName.endsWith("]")
+      )) {
+        console.log("❌ Nome inválido detectado (placeholder):", customerName);
+        return { isComplete: false };
+      }
+
+      // Validar se o serviço não é um placeholder
+      const service = serviceMatch[1].trim();
+      if (service.startsWith("[") || service.endsWith("]") || service.toLowerCase() === "servico") {
+        console.log("❌ Serviço inválido detectado (placeholder):", service);
+        return { isComplete: false };
+      }
+
       // Normalizar horário para formato HH:MM
       let time = timeMatch[1].trim();
       // Converter "9h30" ou "9:30" para "09:30"
@@ -434,16 +473,31 @@ NUNCA envie AGENDAMENTO_COMPLETO mais de uma vez na mesma conversa!`;
         "0"
       )}`;
 
+      console.log("✅ Dados extraídos com sucesso:", {
+        customerName,
+        service,
+        date: dateMatch[1].trim(),
+        time: normalizedTime,
+      });
+
       return {
         isComplete: true,
         data: {
-          customerName: nameMatch[1].trim(),
-          service: serviceMatch[1].trim(),
+          customerName,
+          service,
           date: dateMatch[1].trim(),
           time: normalizedTime,
         },
       };
     }
+
+    // Log quando falta algum campo
+    console.log("❌ Extração falhou - campos faltando:", {
+      temNome: !!nameMatch,
+      temServico: !!serviceMatch,
+      temData: !!dateMatch,
+      temHorario: !!timeMatch,
+    });
 
     return { isComplete: false };
   }

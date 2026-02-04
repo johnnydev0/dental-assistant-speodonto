@@ -558,6 +558,12 @@ export async function POST(request: NextRequest) {
     // Verificar se o agendamento foi completado
     const appointmentData = openAIService.extractAppointmentData(aiResponse);
 
+    // Log de alerta se a IA parece confirmar mas extração falhou
+    if (!appointmentData.isComplete && aiResponse.includes("AGENDAMENTO_COMPLETO")) {
+      console.error("⚠️ ALERTA: Resposta contém AGENDAMENTO_COMPLETO mas extração falhou!");
+      console.error("📝 Resposta da IA:", aiResponse);
+    }
+
     if (appointmentData.isComplete && appointmentData.data) {
       try {
         // Verificar se esta conversa já criou um agendamento
