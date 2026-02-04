@@ -191,6 +191,8 @@ IMPORTANTE: Aceitamos APENAS estes convênios:
 - SempreOdonto
 - Brasil Dental
 - Sindicato
+- Odontomax
+- Hapvida
 
 Se o paciente mencionar outro convênio (como Bradesco, Amil, Unimed, etc):
 1. Informe educadamente que NÃO trabalhamos com esse convênio
