@@ -558,10 +558,31 @@ export async function POST(request: NextRequest) {
     // Verificar se o agendamento foi completado
     const appointmentData = openAIService.extractAppointmentData(aiResponse);
 
-    // Log de alerta se a IA parece confirmar mas extração falhou
+    // Se a IA enviou AGENDAMENTO_COMPLETO mas extração falhou (nome placeholder, etc), pede o nome
     if (!appointmentData.isComplete && aiResponse.includes("AGENDAMENTO_COMPLETO")) {
       console.error("⚠️ ALERTA: Resposta contém AGENDAMENTO_COMPLETO mas extração falhou!");
       console.error("📝 Resposta da IA:", aiResponse);
+
+      const askNameMessage =
+        "Por gentileza, poderia me informar seu nome completo para que eu possa confirmar o agendamento?";
+
+      await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: "ASSISTANT",
+          content: askNameMessage,
+        },
+      });
+
+      await zapiService.sendText({
+        phone: phoneNumber,
+        message: askNameMessage,
+      });
+
+      return NextResponse.json({
+        status: "missing_name",
+        message: "Nome não coletado, pedindo novamente",
+      });
     }
 
     if (appointmentData.isComplete && appointmentData.data) {
