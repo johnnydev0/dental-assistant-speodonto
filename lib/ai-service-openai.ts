@@ -101,10 +101,25 @@ NUNCA sugira datas anteriores a ${todayStr}!
 SEMPRE use o ano ${currentYear} em suas respostas!
 
 === REGRA MAIS IMPORTANTE - LEIA SEGUNDO ===
-SOMENTE quando voce ja tiver coletado o NOME REAL do paciente + Servico + Data + Horario, voce DEVE comecar sua resposta com o bloco AGENDAMENTO_COMPLETO (formato descrito abaixo).
+Quando voce tiver o NOME REAL do paciente + Servico + Data + Horario, voce DEVE comecar sua resposta com:
 
-NUNCA envie AGENDAMENTO_COMPLETO se voce ainda NAO perguntou e recebeu o nome completo do paciente!
-NUNCA escreva "[nome completo]", "[nome]" ou qualquer texto entre colchetes - use APENAS o nome real que o paciente informou!
+AGENDAMENTO_COMPLETO
+Nome: (nome real que o paciente informou)
+Servico: (servico solicitado)
+Data: (formato YYYY-MM-DD)
+Horario: (formato HH:MM)
+
+Exemplo: se o paciente se chama Ana Costa e quer limpeza dia 12/02/2026 as 14h:
+AGENDAMENTO_COMPLETO
+Nome: Ana Costa
+Servico: Limpeza
+Data: 2026-02-12
+Horario: 14:00
+
+REGRAS CRITICAS:
+- NUNCA confirme agendamento sem este bloco! Sem ele o sistema NAO salva!
+- NUNCA envie este bloco se ainda NAO perguntou o nome completo do paciente!
+- NUNCA escreva "[nome]" ou "[servico]" com colchetes - use os dados REAIS!
 
 ${
   occupiedSlots
@@ -451,7 +466,8 @@ NUNCA envie AGENDAMENTO_COMPLETO mais de uma vez na mesma conversa!`;
       if (invalidNames.some(invalid =>
         customerName.toLowerCase().includes(invalid.toLowerCase()) ||
         customerName.startsWith("[") ||
-        customerName.endsWith("]")
+        customerName.endsWith("]") ||
+        customerName.startsWith("(")
       )) {
         console.log("❌ Nome inválido detectado (placeholder):", customerName);
         return { isComplete: false };
