@@ -9,6 +9,9 @@ export const dynamic = "force-dynamic";
 // Horários fixos disponíveis
 const VALID_TIMES = ["09:30", "10:30", "11:30", "13:00", "14:00", "15:00", "16:00"];
 
+// Telefone do atendente humano (pode ser movido para .env como ATTENDANT_PHONE)
+const ATTENDANT_PHONE = "5511998720327";
+
 // Função para buscar horários disponíveis nos próximos dias
 async function getAvailableSlots(): Promise<string> {
   const today = new Date();
@@ -101,24 +104,13 @@ async function getAvailableSlots(): Promise<string> {
       ][dayOfWeek];
       const formattedDate = currentDate.toLocaleDateString("pt-BR");
 
-      result += `📅 ${dayName}, ${formattedDate}:\n`;
-      result += `   ✅ Disponíveis: ${availableTimes.join(", ")}\n`;
-      if (occupiedTimes.length > 0) {
-        result += `   ❌ Ocupados: ${occupiedTimes.join(", ")}\n`;
-      }
-      result += `\n`;
+      result += `📅 ${dayName}, ${formattedDate}: ${availableTimes.join(", ")}\n`;
     }
   }
 
   if (!hasAvailableSlots) {
-    result += "⚠️ Não há horários disponíveis nos próximos dias.\n";
-    result += "Por favor, entre em contato para verificar disponibilidade.\n";
+    result += "Nenhum horario disponivel nos proximos 14 dias.\n";
   }
-
-  result += "\n💡 IMPORTANTE:\n";
-  result += "- Horários disponíveis: Manhã (09:30, 10:30, 11:30) e Tarde (13:00, 14:00, 15:00, 16:00)\n";
-  result += "- Quando o paciente perguntar horários disponíveis, mostre APENAS os horários marcados como ✅ Disponíveis\n";
-  result += "- NUNCA sugira horários marcados como ❌ Ocupados\n";
 
   return result;
 }
@@ -354,11 +346,29 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Enviar mensagem
+      // Avisar o paciente
       await zapiService.sendText({
         phone: phoneNumber,
         message: humanAgentMessage,
       });
+
+      // Notificar atendente humano
+      const attendantPhone = ATTENDANT_PHONE;
+      const attendantNotification =
+        `🔔 *Solicitação de atendimento humano*\n\n` +
+        `👤 Nome: ${senderName}\n` +
+        `📱 Telefone: ${phoneNumber}\n` +
+        `💬 Última mensagem: "${messageText}"`;
+
+      try {
+        await zapiService.sendText({
+          phone: attendantPhone,
+          message: attendantNotification,
+        });
+        console.log("📲 Atendente notificado:", attendantPhone);
+      } catch (err) {
+        console.error("⚠️ Falha ao notificar atendente:", err);
+      }
 
       // Atualizar status da conversa para WAITING_AGENT
       await prisma.conversation.update({
