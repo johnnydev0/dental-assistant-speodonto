@@ -10,7 +10,9 @@ import {
   PhoneIcon,
   PlusIcon,
   FunnelIcon,
-  NoSymbolIcon
+  NoSymbolIcon,
+  MagnifyingGlassIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline'
 import { useRouter } from 'next/navigation'
 
@@ -39,6 +41,7 @@ export default function AppointmentsPage() {
   const [blockedSlots, setBlockedSlots] = useState<BlockedTimeSlot[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'today'>('upcoming')
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     fetchAppointments()
@@ -143,7 +146,17 @@ export default function AppointmentsPage() {
     return grouped
   }
 
-  const groupedAppointments = groupByDate(appointments, blockedSlots)
+  const filteredAppointments = search.trim()
+    ? appointments.filter((apt: Appointment) => {
+        const q = search.toLowerCase()
+        return (
+          apt.customerName.toLowerCase().includes(q) ||
+          apt.customerPhone.includes(q)
+        )
+      })
+    : appointments
+
+  const groupedAppointments = groupByDate(filteredAppointments, search.trim() ? [] : blockedSlots)
 
   return (
     <Layout>
@@ -193,6 +206,26 @@ export default function AppointmentsPage() {
           >
             Todos
           </button>
+        </div>
+
+        {/* Busca */}
+        <div className="relative">
+          <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Buscar por nome ou telefone..."
+            value={search}
+            onChange={(e: { target: { value: string } }) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <XMarkIcon className="h-5 w-5" />
+            </button>
+          )}
         </div>
 
         {/* Lista de Agendamentos */}
