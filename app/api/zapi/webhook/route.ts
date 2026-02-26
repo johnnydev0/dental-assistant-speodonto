@@ -597,24 +597,6 @@ export async function POST(request: NextRequest) {
 
     if (appointmentData.isComplete && appointmentData.data) {
       try {
-        // Verificar se esta conversa já criou um agendamento
-        const existingAppointment = await prisma.appointment.findFirst({
-          where: {
-            conversationId: conversation.id,
-            status: {
-              not: "CANCELLED",
-            },
-          },
-        });
-
-        if (existingAppointment) {
-          console.log("⚠️ Esta conversa já tem um agendamento criado!");
-          return NextResponse.json({
-            status: "already_scheduled",
-            message: "Agendamento já criado para esta conversa",
-          });
-        }
-
         const appointmentDate = new Date(appointmentData.data.date + 'T12:00:00');
         const appointmentTime = appointmentData.data.time;
 
@@ -643,15 +625,11 @@ export async function POST(request: NextRequest) {
             message: blockedMessage,
           });
 
-          return NextResponse.json({
-            status: "blocked_date",
-            message: "Dia bloqueado",
-          });
+          return NextResponse.json({ status: "blocked_date", message: "Dia bloqueado" });
         }
 
         // Validar se o horário é um dos horários permitidos
-        const validTimes = ["09:30", "10:30", "11:30", "13:00", "14:00", "15:00", "16:00"];
-        if (!validTimes.includes(appointmentTime)) {
+        if (!VALID_TIMES.includes(appointmentTime)) {
           console.log("⚠️ Horário inválido:", appointmentTime);
           const invalidTimeMessage =
             `Desculpe, mas o horário ${appointmentTime} não está disponível.\n\n` +
@@ -673,32 +651,34 @@ export async function POST(request: NextRequest) {
             message: invalidTimeMessage,
           });
 
-          return NextResponse.json({
-            status: "invalid_time",
-            message: "Horário não disponível",
-          });
+          return NextResponse.json({ status: "invalid_time", message: "Horário não disponível" });
         }
 
-        // Verificar se já existe agendamento para este horário (outro paciente)
+        // Buscar agendamento ativo do próprio cliente (para remarcação)
+        const ownAppointment = await prisma.appointment.findFirst({
+          where: {
+            customerPhone: phoneNumber,
+            status: { in: ["PENDING", "CONFIRMED"] },
+          },
+          orderBy: { date: "asc" },
+        });
+
+        // Verificar conflito com OUTROS pacientes (excluindo o próprio agendamento do cliente)
         const conflictingAppointment = await prisma.appointment.findFirst({
           where: {
             date: appointmentDate,
             time: appointmentTime,
-            status: {
-              not: "CANCELLED",
-            },
+            status: { not: "CANCELLED" },
+            ...(ownAppointment ? { id: { not: ownAppointment.id } } : {}),
           },
         });
 
         if (conflictingAppointment) {
-          console.log("⚠️ Conflito de horário detectado!");
+          console.log("⚠️ Conflito de horário com outro paciente!");
           const conflictMessage =
-            `Desculpe, mas já existe um agendamento para ${appointmentDate.toLocaleDateString(
-              "pt-BR"
-            )} às ${appointmentTime}.\n\n` +
+            `Desculpe, mas já existe um agendamento para ${appointmentDate.toLocaleDateString("pt-BR")} às ${appointmentTime}.\n\n` +
             `Por gentileza, escolha outro horário disponível.`;
 
-          // Salvar mensagem de conflito no histórico
           await prisma.message.create({
             data: {
               conversationId: conversation.id,
@@ -712,54 +692,45 @@ export async function POST(request: NextRequest) {
             message: conflictMessage,
           });
 
-          return NextResponse.json({
-            status: "conflict",
-            message: "Horário já ocupado",
-          });
+          return NextResponse.json({ status: "conflict", message: "Horário já ocupado" });
         }
 
-        // Verificar se o cliente já tem agendamentos existentes (remarcação)
-        const existingClientAppointments = await prisma.appointment.findMany({
-          where: {
-            customerPhone: phoneNumber,
-            status: {
-              in: ["PENDING", "CONFIRMED"],
-            },
-          },
-        });
+        let appointment;
+        let isRescheduling = false;
 
-        // Se houver agendamentos existentes, cancela todos (é uma remarcação)
-        const isRescheduling = existingClientAppointments.length > 0;
-        if (isRescheduling) {
-          console.log(`📅 Remarcação detectada! Cancelando ${existingClientAppointments.length} agendamento(s) anterior(es)`);
-          await prisma.appointment.updateMany({
-            where: {
-              customerPhone: phoneNumber,
-              status: {
-                in: ["PENDING", "CONFIRMED"],
-              },
-            },
+        if (ownAppointment) {
+          // Remarcação: atualiza o agendamento existente (sem criar um novo)
+          isRescheduling = true;
+          console.log(`📅 Remarcação: atualizando agendamento ${ownAppointment.id}`);
+          appointment = await prisma.appointment.update({
+            where: { id: ownAppointment.id },
             data: {
-              status: "CANCELLED",
+              customerName: appointmentData.data.customerName,
+              service: appointmentData.data.service,
+              date: appointmentDate,
+              time: appointmentTime,
+              status: "CONFIRMED",
+              conversationId: conversation.id,
+            },
+          });
+        } else {
+          // Novo agendamento
+          console.log("📅 Novo agendamento sendo criado...");
+          appointment = await prisma.appointment.create({
+            data: {
+              customerName: appointmentData.data.customerName,
+              customerPhone: phoneNumber,
+              service: appointmentData.data.service,
+              date: appointmentDate,
+              time: appointmentTime,
+              duration: 60,
+              status: "CONFIRMED",
+              conversationId: conversation.id,
             },
           });
         }
 
-        // Criar agendamento
-        const appointment = await prisma.appointment.create({
-          data: {
-            customerName: appointmentData.data.customerName,
-            customerPhone: phoneNumber,
-            service: appointmentData.data.service,
-            date: appointmentDate,
-            time: appointmentTime,
-            duration: 60, // Duração padrão: 1 hora
-            status: "CONFIRMED",
-            conversationId: conversation.id,
-          },
-        });
-
-        console.log("📅 Agendamento criado:", appointment.id);
+        console.log(`✅ Agendamento ${isRescheduling ? 'atualizado' : 'criado'}:`, appointment.id);
 
         // Fecha conversa
         await prisma.conversation.update({
@@ -767,15 +738,12 @@ export async function POST(request: NextRequest) {
           data: { status: "CLOSED" },
         });
 
-        // Envia mensagem de confirmação limpa
         const confirmationMessage =
-          `✅ ${isRescheduling ? 'Agendamento remarcado' : 'Agendamento confirmado'}!\n\n` +
+          `✅ ${isRescheduling ? 'Consulta remarcada' : 'Consulta confirmada'}!\n\n` +
           `📋 Resumo:\n` +
           `Nome: ${appointmentData.data.customerName}\n` +
           `Serviço: ${appointmentData.data.service}\n` +
-          `Data: ${new Date(appointmentData.data.date).toLocaleDateString(
-            "pt-BR"
-          )}\n` +
+          `Data: ${new Date(appointmentData.data.date).toLocaleDateString("pt-BR")}\n` +
           `Horário: ${appointmentData.data.time}\n\n` +
           `Nos vemos em breve! 😊`;
 
@@ -783,13 +751,9 @@ export async function POST(request: NextRequest) {
           phone: phoneNumber,
           message: confirmationMessage,
         });
-        console.log(
-          "📨 Resposta confirmação Z-API:",
-          JSON.stringify(zapiConfirmation, null, 2)
-        );
+        console.log("📨 Resposta confirmação Z-API:", JSON.stringify(zapiConfirmation, null, 2));
       } catch (error) {
-        console.error("❌ Erro ao criar agendamento:", error);
-        // Se erro, envia resposta normal da IA
+        console.error("❌ Erro ao processar agendamento:", error);
         await zapiService.sendText({
           phone: phoneNumber,
           message: aiResponse,
