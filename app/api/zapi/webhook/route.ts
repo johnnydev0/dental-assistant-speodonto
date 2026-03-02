@@ -19,11 +19,15 @@ async function getAvailableSlots(): Promise<string> {
 
   const daysToShow = 14; // Mostrar próximos 14 dias
 
+  const endDate = new Date(today);
+  endDate.setDate(today.getDate() + daysToShow);
+
   // Buscar dias bloqueados
   const blockedDates = await prisma.blockedDate.findMany({
     where: {
       date: {
         gte: today,
+        lte: endDate,
       },
     },
     select: {
@@ -36,10 +40,30 @@ async function getAvailableSlots(): Promise<string> {
     blockedDates.map(bd => bd.date.toISOString().split("T")[0])
   );
 
-  // Buscar agendamentos
-  const endDate = new Date(today);
-  endDate.setDate(today.getDate() + daysToShow);
+  // Buscar slots de horário bloqueados (ex: manhã toda bloqueada, reunião, etc)
+  const blockedTimeSlots = await prisma.blockedTimeSlot.findMany({
+    where: {
+      date: {
+        gte: today,
+        lte: endDate,
+      },
+    },
+    select: {
+      date: true,
+      startTime: true,
+      endTime: true,
+    },
+  });
 
+  // Agrupar slots bloqueados por data
+  const blockedSlotsByDate = blockedTimeSlots.reduce((acc, slot) => {
+    const dateStr = slot.date.toISOString().split("T")[0];
+    if (!acc[dateStr]) acc[dateStr] = [];
+    acc[dateStr].push({ startTime: slot.startTime, endTime: slot.endTime });
+    return acc;
+  }, {} as Record<string, { startTime: string; endTime: string }[]>);
+
+  // Buscar agendamentos
   const appointments = await prisma.appointment.findMany({
     where: {
       date: {
@@ -88,7 +112,16 @@ async function getAvailableSlots(): Promise<string> {
     }
 
     const occupiedTimes = appointmentsByDate[dateStr] || [];
-    const availableTimes = VALID_TIMES.filter(time => !occupiedTimes.includes(time));
+    const blockedSlots = blockedSlotsByDate[dateStr] || [];
+
+    const availableTimes = VALID_TIMES.filter(time => {
+      if (occupiedTimes.includes(time)) return false;
+      // Verificar se o horário cai dentro de algum slot bloqueado
+      for (const slot of blockedSlots) {
+        if (time >= slot.startTime && time < slot.endTime) return false;
+      }
+      return true;
+    });
 
     // Só mostrar dias que têm pelo menos um horário disponível
     if (availableTimes.length > 0) {
@@ -597,12 +630,14 @@ export async function POST(request: NextRequest) {
 
     if (appointmentData.isComplete && appointmentData.data) {
       try {
-        const appointmentDate = new Date(appointmentData.data.date + 'T12:00:00');
+        const appointmentDate = new Date(appointmentData.data.date + 'T12:00:00Z');
         const appointmentTime = appointmentData.data.time;
 
-        // Verificar se o dia está bloqueado
-        const isBlocked = await prisma.blockedDate.findUnique({
-          where: { date: appointmentDate }
+        // Verificar se o dia está bloqueado (comparação por string de data para evitar problemas de timezone)
+        const dayStart = new Date(appointmentData.data.date + 'T00:00:00.000Z');
+        const dayEnd = new Date(appointmentData.data.date + 'T23:59:59.999Z');
+        const isBlocked = await prisma.blockedDate.findFirst({
+          where: { date: { gte: dayStart, lte: dayEnd } },
         });
 
         if (isBlocked) {
