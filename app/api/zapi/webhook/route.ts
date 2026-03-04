@@ -12,6 +12,15 @@ const VALID_TIMES = ["09:30", "10:30", "11:30", "13:00", "14:00", "15:00", "16:0
 // Telefone do atendente humano (pode ser movido para .env como ATTENDANT_PHONE)
 const ATTENDANT_PHONE = "5511998720327";
 
+// Remove marcadores internos antes de enviar a mensagem ao cliente
+function cleanResponseForClient(text: string): string {
+  return text
+    .replace(/CANCELAR_AGENDAMENTO/g, "")
+    .replace(/AGENDAMENTO_COMPLETO[\s\S]*?(?=\n\n|$)/g, "")
+    .replace(/ALTERACAO_COMPLETA[\s\S]*?(?=\n\n|$)/g, "")
+    .trim();
+}
+
 // Função para buscar horários disponíveis nos próximos dias
 async function getAvailableSlots(): Promise<string> {
   const today = new Date();
@@ -491,8 +500,29 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        const newDate = new Date(rescheduleData.data.newDate);
+        const newDate = new Date(rescheduleData.data.newDate + 'T12:00:00Z');
         const newTime = rescheduleData.data.newTime;
+
+        // Verificar se o novo dia está bloqueado
+        const newDayStart = new Date(rescheduleData.data.newDate + 'T00:00:00.000Z');
+        const newDayEnd = new Date(rescheduleData.data.newDate + 'T23:59:59.999Z');
+        const isNewDateBlocked = await prisma.blockedDate.findFirst({
+          where: { date: { gte: newDayStart, lte: newDayEnd } },
+        });
+
+        if (isNewDateBlocked) {
+          console.log("⚠️ Nova data bloqueada:", rescheduleData.data.newDate);
+          const blockedMessage =
+            `Desculpe, mas o dia ${newDate.toLocaleDateString("pt-BR", { timeZone: "UTC" })} não tem atendimento` +
+            (isNewDateBlocked.reason ? ` (${isNewDateBlocked.reason})` : '') +
+            `.\n\nPor favor, escolha outra data.`;
+
+          await prisma.message.create({
+            data: { conversationId: conversation.id, role: "ASSISTANT", content: blockedMessage },
+          });
+          await zapiService.sendText({ phone: phoneNumber, message: blockedMessage });
+          return NextResponse.json({ status: "blocked_date", message: "Nova data bloqueada" });
+        }
 
         // Validar se o horário é um dos horários permitidos
         const validTimes = ["09:30", "10:30", "11:30", "13:00", "14:00", "15:00", "16:00"];
@@ -575,6 +605,11 @@ export async function POST(request: NextRequest) {
 
         console.log("✅ Agendamento alterado com sucesso!");
 
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { status: "CLOSED" },
+        });
+
         const confirmationMessage =
           `✅ Alteracao confirmada!\n\n` +
           `📋 Novo horario:\n` +
@@ -595,6 +630,53 @@ export async function POST(request: NextRequest) {
         });
       } catch (error) {
         console.error("Erro ao alterar agendamento:", error);
+      }
+    }
+
+    // Verificar se é um cancelamento de agendamento
+    if (aiResponse.includes("CANCELAR_AGENDAMENTO")) {
+      try {
+        const appointmentToCancel = await prisma.appointment.findFirst({
+          where: {
+            customerPhone: phoneNumber,
+            status: { in: ["PENDING", "CONFIRMED"] },
+          },
+          orderBy: { date: "asc" },
+        });
+
+        if (!appointmentToCancel) {
+          console.log("⚠️ Nenhum agendamento ativo encontrado para cancelar");
+          const noAppointmentMessage =
+            "Não encontrei nenhum agendamento ativo para cancelar. " +
+            "Se precisar de ajuda, ligue: (11) 4184-4602.";
+          await zapiService.sendText({ phone: phoneNumber, message: noAppointmentMessage });
+          return NextResponse.json({ status: "no_appointment", message: "Nenhum agendamento ativo" });
+        }
+
+        await prisma.appointment.update({
+          where: { id: appointmentToCancel.id },
+          data: { status: "CANCELLED" },
+        });
+
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { status: "CLOSED" },
+        });
+
+        console.log("✅ Agendamento cancelado:", appointmentToCancel.id);
+
+        // Envia mensagem limpa (sem o marcador) ao cliente
+        const cleanMessage = aiResponse
+          .replace(/CANCELAR_AGENDAMENTO/g, "")
+          .trim();
+        await zapiService.sendText({
+          phone: phoneNumber,
+          message: cleanMessage || "Seu agendamento foi cancelado com sucesso. Até breve!",
+        });
+
+        return NextResponse.json({ status: "cancelled", message: "Agendamento cancelado com sucesso" });
+      } catch (error) {
+        console.error("❌ Erro ao cancelar agendamento:", error);
       }
     }
 
@@ -791,7 +873,7 @@ export async function POST(request: NextRequest) {
         console.error("❌ Erro ao processar agendamento:", error);
         await zapiService.sendText({
           phone: phoneNumber,
-          message: aiResponse,
+          message: cleanResponseForClient(aiResponse),
         });
       }
     } else {
@@ -799,7 +881,7 @@ export async function POST(request: NextRequest) {
       console.log("📤 Enviando resposta via Z-API...");
       const zapiResponse = await zapiService.sendText({
         phone: phoneNumber,
-        message: aiResponse,
+        message: cleanResponseForClient(aiResponse),
       });
       console.log(
         "📨 Resposta do Z-API:",
